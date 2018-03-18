@@ -5,7 +5,7 @@
   (:import java.util.Arrays))
 
 (defprotocol Iterator
-  (next [this])
+  (next-item [this])
   (seek [this key-prefix])
   (current-key [this]))
 
@@ -16,13 +16,16 @@
   (let [prefix-structure (bt/prefix-structure
                            structure-type prefix-keys)
         prefix-size (bt/structure-size prefix-structure)]
-    `(let [prefix-val-before# (Arrays/copyOfRange
-                                ~key-binding 0 ~prefix-size)]
-       (when-let [key# (seek ~iterator-binding ~key-binding)]
-         (when (Arrays/equals
-                 prefix-val-before#
-                 (Arrays/copyOfRange key# 0 ~prefix-size))
-           key#)))))
+    (if (seq prefix-keys)
+      `(let [prefix-val-before# (Arrays/copyOfRange
+                                  ~key-binding 0 ~prefix-size)]
+         (when-let [key# (seek ~iterator-binding ~key-binding)]
+           (when (Arrays/equals
+                   prefix-val-before#
+                   (Arrays/copyOfRange key# 0 ~prefix-size))
+             key#)))
+      `(when-let [key# (seek ~iterator-binding ~key-binding)]
+         key#))))
 
 (defmacro next-while-in-prefix
   [structure-type prefix-keys
@@ -30,19 +33,30 @@
   (let [prefix-structure (bt/prefix-structure
                            structure-type prefix-keys)
         prefix-size (bt/structure-size prefix-structure)]
-    `(let [prefix-val-before# (Arrays/copyOfRange
-                                ~key-binding 0 ~prefix-size)]
-       (loop []
-         (when-let [key# (next ~iterator-binding)]
-           (if (Arrays/equals
+    (if (seq prefix-keys)
+      `(let [prefix-val-before# (Arrays/copyOfRange
+                                  ~key-binding 0 ~prefix-size)]
+         (loop []
+           (when-let [~key-binding (next-item ~iterator-binding)]
+             (when (Arrays/equals
                    prefix-val-before#
-                   (Arrays/copyOfRange key# 0 ~prefix-size))
-             (do
+                   (Arrays/copyOfRange ~key-binding 0 ~prefix-size))
                ~@body
-               (recur))
-             (do
-               (println "leaving prefix")
-               nil)))))))
+               (recur)))))
+      `(loop []
+         (when-let [~key-binding (next-item ~iterator-binding)]
+           ~@body
+           (recur))))))
+
+(defn optimize-query
+  "Use next instead of seek when there are no restrictions
+   on keysegments below the current iteration point "
+  [query]
+  (reverse
+    (drop-while
+      (fn [[k query-item]]
+        (= query-item {:q :any :limit Long/MAX_VALUE :after nil}))
+      (reverse query))))
 
 (defn normalize-query
   [structure query-map]
@@ -116,7 +130,9 @@
   [structure-type
    iterator-expr
    query-map]
-  (let [query (normalize-query (bt/key-structure structure-type) query-map)
+  (let [query (->> query-map
+                   (normalize-query (bt/key-structure structure-type))
+                   optimize-query)
         iterator-binding (gensym "iterator")
         key-binding (gensym "key-binding")
         submit-key! (gensym "submit-key!")
@@ -137,13 +153,13 @@
                                   ~@(flatten (seq prefix-bindings)))]
                (when-let [~key-binding (seek-in-prefix
                                          ~structure-type
-                                         ~(keys prefix-bindings)
+                                         ~(into [] (keys prefix-bindings))
                                          ~iterator-binding
                                          ~key-binding)]
                  (~submit-key! (bt/parse-key ~structure-type ~key-binding))
                  (next-while-in-prefix
                    ~structure-type
-                   ~(keys prefix-bindings)
+                   ~(into [] (keys prefix-bindings))
                    ~iterator-binding
                    ~key-binding
                    (~submit-key! (bt/parse-key ~structure-type ~key-binding))))))

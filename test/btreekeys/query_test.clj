@@ -11,6 +11,12 @@
 
 (deftype SortedSetIterator [coll position]
   q/Iterator
+  (next-item [_]
+    (when-let [key (if @position
+                     (.higher coll @position)
+                     (.first coll))]
+      (reset! position key)
+      (Arrays/copyOf key (alength key))))
   (current-key [_] @position)
   (seek [_ key-prefix]
     (when-let [key (.ceiling coll key-prefix)]
@@ -47,6 +53,23 @@
 
 (deftest test-queries
   (are [q v] (= v (q/execute-query ::key (iterator sample-set) q))
+    ;; find all
+    {}
+    (map
+      #(bt/parse-key ::key %)
+      sample-set)
+
+    ;; find all after
+    {:body {:q :any :after 2}}
+    (->> sample-set
+         (map #(bt/parse-key ::key %))
+         (filter #(<= 2 (:body %))))
+
+     ;; find exact match
+    {:head {:q :eq :value 1}
+     :body {:q :eq :value 1}
+     :tail {:q :eq :value 1}}
+    [{:head 1 :body 1 :tail 1}]
 
     ;; find first off every group
     {:head {:q :eq :value 1}
@@ -69,7 +92,6 @@
      {:head 1, :body 3, :tail 2}
      {:head 1, :body 3, :tail 3}
      {:head 1, :body 3, :tail 4}]
-
 
     ;; find first after 2
     {:head {:q :eq :value 1}
