@@ -2,7 +2,7 @@
   (:require [clojure.test :refer :all]
             [btreekeys.core :as bt]))
 
-(defmethod key-structure ::sample
+(defmethod bt/key-structure ::sample
   [_]
   [[:head :long]
    [:body :long]
@@ -30,7 +30,7 @@
           100, -82, -5, 76, -109])))
 
 (deftest keysegment-range-test
-  (are [k r] (= r (keysegment-range ::sample k))
+  (are [k r] (= r (bt/keysegment-range ::sample k))
     :head [0 7]
     :body [8 15]
     :tail [16 23]))
@@ -64,3 +64,13 @@
     (is (not (bt/increment-key-segment!
                ::sample :body max-key)))
     (is (= (seq max-key) max-key-source))))
+
+(deftest test-extract-keysegment
+  (let [key (bt/make-key-prefix
+              ::sample
+              :head 1 :body 2 :tail 3)]
+    (are [k v] (= v (bt/extract-keysegment
+                      ::sample k key))
+      :head 1
+      :body 2
+      :tail 3)))

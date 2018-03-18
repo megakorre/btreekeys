@@ -66,11 +66,15 @@
     (map (comp keysegment-size second)
          (key-structure structure-type))))
 
+(defn structure-size
+  [structure]
+  (->> structure
+       (map (comp keysegment-size second))
+       (reduce +)))
+
 (defn- make-key-code
   [structure prefix-expressions]
-  (let [key-size (->> structure
-                      (map (comp keysegment-size second))
-                      (reduce +))
+  (let [key-size (structure-size structure)
         buffer-sym (gensym "buffer")]
     `(let [~buffer-sym (ByteBuffer/allocate ~key-size)]
        ~@(for [[keysegment-key keysegment-type] structure]
@@ -96,7 +100,7 @@
   ;; TODO
  )
 
-(defn- prefix-structure
+(defn prefix-structure
   [structure-type prefix-keys]
   (let [prefix-set (set prefix-keys)]
     (take-while
@@ -154,6 +158,19 @@
   (assert-key-in-structure structure-type keysegment-key)
   (let [[start end] (keysegment-range structure-type keysegment-key)]
     `(increment-byte-range! ~bytes-expr ~start ~end)))
+
+(defmacro extract-keysegment
+  [structure-type keysegment-key bytes-expr]
+  (assert-structure-variances structure-type)
+  (assert-key-in-structure structure-type keysegment-key)
+  (let [[segment-start _segment-end]
+        (keysegment-range structure-type keysegment-key)
+        keysegment-type (keysegment-type structure-type keysegment-key)
+        buffer-binding (gensym "buffer")]
+    `(let [~buffer-binding
+           (ByteBuffer/wrap
+             ~bytes-expr ~segment-start ~(keysegment-size keysegment-type))]
+       ~(keysegment-read-code keysegment-type buffer-binding))))
 
 ;; =============================================================================
 ;; built in keysegment types
