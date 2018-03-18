@@ -6,7 +6,6 @@
   (:import java.util.TreeSet
            java.util.Comparator
            com.google.common.primitives.UnsignedBytes
-           com.google.common.primitives.SignedBytes
            java.util.Arrays))
 
 (deftype SortedSetIterator [coll position]

@@ -2,7 +2,11 @@
   (:require
    [btreekeys.core :as bt]
    [clojure.pprint :refer [pprint]])
-  (:import java.util.Arrays))
+  (:import java.util.Arrays
+           java.util.TreeSet
+           java.util.Comparator
+           com.google.common.primitives.UnsignedBytes
+           java.nio.ByteBuffer))
 
 (defprotocol Iterator
   (next-item [this])
@@ -70,11 +74,33 @@
 
 (defmulti query-code :q)
 
+(defmacro lexicographical-sort
+  [structure-type keysegment-key skip-expr items]
+  (let [value-binding (gensym (name keysegment-key))]
+    `(let [skip# ~skip-expr
+           tree-set# (TreeSet. ^Comparator
+                           (UnsignedBytes/lexicographicalComparator))]
+       (doseq [~value-binding ~items]
+         (.add tree-set# (bt/make-keysegment
+                           ~structure-type
+                           ~keysegment-key
+                           ~value-binding)))
+       (if skip#
+         (seq (.tailSet tree-set# (bt/make-keysegment
+                                    ~structure-type
+                                    ~keysegment-key
+                                    skip#)))
+         (seq tree-set#)))))
+
 (defmethod query-code :in
-  [{:keys [values keysegment-key]} cont]
+  [{:keys [values keysegment-key structure-type after]} cont]
   (fn [prefix-bindings]
     (let [value-binding (gensym (str (name keysegment-key) "-in-binding"))]
-      `(doseq [~value-binding (sort ~values)]
+      `(doseq [^bytes ~value-binding (lexicographical-sort
+                                       ~structure-type
+                                       ~keysegment-key
+                                       ~after
+                                       ~values)]
          ~(cont (assoc prefix-bindings
                        keysegment-key value-binding))))))
 
@@ -91,17 +117,22 @@
           iter-count-binding (gensym "iter-count")
           prefix-keys (keys prefix-bindings)
           prefix-bindings (if after
-                            (assoc prefix-bindings keysegment-key after)
+                            (assoc
+                              prefix-bindings
+                              keysegment-key `(bt/make-keysegment
+                                                ~structure-type
+                                                ~keysegment-key
+                                                ~after))
                             prefix-bindings)]
       `(loop [~iter-count-binding 1
-              ~key-binding (bt/make-key-prefix
+              ~key-binding (bt/make-byte-prefix
                              ~structure-type
-                             ~@(flatten (seq prefix-bindings)))]
+                             ~@(apply concat prefix-bindings))]
          (when-let [~key-binding (seek-in-prefix
                                    ~structure-type
                                    ~(into [] prefix-keys)
                                    ~iterator-binding ~key-binding)]
-           (let [~value-binding (bt/extract-keysegment
+           (let [~value-binding (bt/extract-keysegment-byte
                                   ~structure-type
                                   ~keysegment-key
                                   ~key-binding)]
@@ -148,7 +179,7 @@
                  :iterator-binding iterator-binding})
               next-cont))
           (fn [prefix-bindings]
-            `(let [~key-binding (bt/make-key-prefix
+            `(let [~key-binding (bt/make-byte-prefix
                                   ~structure-type
                                   ~@(flatten (seq prefix-bindings)))]
                (when-let [~key-binding (seek-in-prefix

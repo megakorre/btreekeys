@@ -72,6 +72,18 @@
        (map (comp keysegment-size second))
        (reduce +)))
 
+(defmacro make-keysegment
+  [structure-type keysegment-key value-expr]
+  (let [buffer-binding (gensym "buffer")
+        keysegment-type (keysegment-type structure-type keysegment-key)]
+    `(let [~buffer-binding (ByteBuffer/allocate ~(keysegment-size
+                                                   keysegment-type))]
+       ~(keysegment-write-code
+          keysegment-type
+          buffer-binding
+          value-expr)
+       (.array ~buffer-binding))))
+
 (defn- make-key-code
   [structure prefix-expressions]
   (let [key-size (structure-size structure)
@@ -114,6 +126,19 @@
   (make-key-code
     (prefix-structure structure-type (keys prefix-expressions))
     prefix-expressions))
+
+(defmacro make-byte-prefix
+  [structure-type & {:as prefix-expressions}]
+  (assert-structure-variances structure-type)
+  (assert-is-valid-prefix structure-type (keys prefix-expressions))
+  (let [structure (prefix-structure structure-type (keys prefix-expressions))
+        buffer-bind (with-meta (gensym "buffer") {:tag ByteBuffer})]
+    `(let [~buffer-bind (ByteBuffer/allocate ~(structure-size structure))]
+       ~@(for [[keysegment-key _] structure]
+           `(do
+              (println ~(get prefix-expressions keysegment-key))
+              (.put ~buffer-bind ^bytes ~(get prefix-expressions keysegment-key))))
+       (.array ~buffer-bind))))
 
 (defn- parse-code
   [structure input-bytes-expr]
@@ -158,6 +183,17 @@
   (assert-key-in-structure structure-type keysegment-key)
   (let [[start end] (keysegment-range structure-type keysegment-key)]
     `(increment-byte-range! ~bytes-expr ~start ~end)))
+
+(defmacro extract-keysegment-byte
+  [structure-type keysegment-key bytes-expr]
+  (assert-structure-variances structure-type)
+  (assert-key-in-structure structure-type keysegment-key)
+  (let [[segment-start segment-end]
+        (keysegment-range structure-type keysegment-key)]
+    `(Arrays/copyOfRange
+       ~bytes-expr
+       ~segment-start
+       ~(inc segment-end))))
 
 (defmacro extract-keysegment
   [structure-type keysegment-key bytes-expr]
