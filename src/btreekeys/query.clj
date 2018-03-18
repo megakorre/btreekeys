@@ -59,10 +59,10 @@
     cont))
 
 (defn- with-seq-and-continue
-  [{:keys [prefix-bindings cont key-binding
-           prefix-keys]
+  [{:keys [prefix-bindings cont prefix-keys]
     :or {prefix-keys (keys prefix-bindings)}
     {:keys [structure-type
+            key-binding
             iterator-binding
             keysegment-key]} :context}
    & body]
@@ -86,61 +86,49 @@
      ~@(flatten (seq prefix-bindings))))
 
 (defmethod query-code :any
-  [{:keys [keysegment-key
-           iterator-binding
-           structure-type] :as context} cont]
+  [{:keys [keysegment-key iterator-binding key-binding structure-type]
+    :as context} cont]
   (fn [prefix-bindings]
-    (let [key-binding (gensym "key")]
-      `(loop [~key-binding ~(make-binding-prefix structure-type prefix-bindings)]
-         ~(with-seq-and-continue
-            {:context context
-             :prefix-bindings prefix-bindings
-             :key-binding key-binding
-             :cont cont}
-            `(when (bt/increment-key-segment!
-                     ~structure-type ~keysegment-key
-                     ~key-binding)
-               (recur ~key-binding)))))))
+    `(loop [~key-binding ~(make-binding-prefix structure-type prefix-bindings)]
+       ~(with-seq-and-continue
+          {:context context
+           :prefix-bindings prefix-bindings
+           :cont cont}
+          `(when (bt/increment-key-segment!
+                   ~structure-type ~keysegment-key
+                   ~key-binding)
+             (recur ~key-binding))))))
 
 (defmethod query-code :first
-  [{:keys [keysegment-key
-           iterator-binding
-           structure-type] :as context} cont]
+  [{:keys [keysegment-key iterator-binding structure-type key-binding]
+    :as context} cont]
   (fn [prefix-bindings]
-    (let [key-binding (gensym "key")]
-      `(let [~key-binding ~(make-binding-prefix structure-type prefix-bindings)]
-         ~(with-seq-and-continue
-            {:context context
-             :prefix-bindings prefix-bindings
-             :key-binding key-binding
-             :cont cont})))))
+    `(let [~key-binding ~(make-binding-prefix structure-type prefix-bindings)]
+       ~(with-seq-and-continue
+          {:context context
+           :prefix-bindings prefix-bindings
+           :cont cont}))))
 
 (defmethod query-code :first-after
-  [{:keys [keysegment-key
-           iterator-binding
-           match-value
-           structure-type] :as context} cont]
+  [{:keys [keysegment-key iterator-binding match-value structure-type
+           key-binding]
+    :as context} cont]
   (fn [prefix-bindings]
-    (let [key-binding (gensym "key")
-          prefix-keys (keys prefix-bindings)
+    (let [prefix-keys (keys prefix-bindings)
           prefix-bindings (assoc prefix-bindings keysegment-key match-value)]
       `(let [~key-binding ~(make-binding-prefix structure-type prefix-bindings)]
          ~(with-seq-and-continue
             {:context context
              :prefix-keys prefix-keys
              :prefix-bindings prefix-bindings
-             :key-binding key-binding
              :cont cont})))))
 
 (defmethod query-code :after
-  [{:keys [keysegment-key
-           iterator-binding
-           match-value
-           structure-type] :as context} cont]
+  [{:keys [keysegment-key iterator-binding match-value structure-type
+           key-binding]
+    :as context} cont]
   (fn [prefix-bindings]
-    (let [key-binding (gensym "key")
-          match-binding (gensym (str (name keysegment-key)
-                                     "-after"))
+    (let [match-binding (gensym (str (name keysegment-key) "-after"))
           prefix-keys (keys prefix-bindings)
           prefix-bindings (assoc prefix-bindings
                                  keysegment-key
@@ -151,7 +139,6 @@
               {:context context
                :prefix-keys prefix-keys
                :prefix-bindings prefix-bindings
-               :key-binding key-binding
                :cont cont}
               `(when (bt/increment-key-segment!
                        ~structure-type ~keysegment-key
@@ -176,12 +163,14 @@
    query-map]
   (let [query (normalize-query (bt/key-structure structure-type) query-map)
         iterator-binding (gensym "iterator")
+        key-binding (gensym "key-binding")
         submit-key! (gensym "submit-key!")
         toplevel-runner
         (reduce
           (fn [next-cont [keysegment-key mapping]]
             (query-code
               {:keysegment-key keysegment-key
+               :key-binding key-binding
                :match-type (first (keys mapping))
                :match-value (first (vals mapping))
                :structure-type structure-type
