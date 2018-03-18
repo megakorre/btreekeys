@@ -46,7 +46,7 @@
                                 :tail tail})))))
 
 (deftest test-queries
-  (are [q v] (= v (seq (q/execute-query ::key (iterator sample-set) q)))
+  (are [q v] (= v (q/execute-query ::key (iterator sample-set) q))
 
     ;; find first off every group
     {:head {:q :eq :value 1}

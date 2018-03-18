@@ -70,13 +70,11 @@
                                   ~structure-type
                                   ~keysegment-key
                                   ~key-binding)]
-             ~(cont (assoc prefix-bindings
-                           keysegment-key value-binding)))
-           (when (and
-                   (< ~iter-count-binding ~limit)
-                   (bt/increment-key-segment!
-                     ~structure-type ~keysegment-key
-                     ~key-binding))
+             ~(cont (assoc prefix-bindings keysegment-key value-binding)))
+           (when (and (< ~iter-count-binding ~limit)
+                      (bt/increment-key-segment!
+                        ~structure-type ~keysegment-key
+                        ~key-binding))
              (recur
                (inc ~iter-count-binding)
                ~key-binding)))))))
