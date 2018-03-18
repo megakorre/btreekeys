@@ -28,122 +28,58 @@
   (for [[keysegment-key keysegment-type] structure
         :let [value (query-map keysegment-key)]]
     [keysegment-key
-     (if (or (nil? value)
-             (= value :any))
-       {:any true}
-       value)]))
+     (merge
+       {:limit Long/MAX_VALUE
+        :after nil}
+       (if (nil? value) {:q :any} value))]))
 
-(defmethod bt/key-structure ::keyref
-  [_]
-  [[:df-type :long]
-   [:join-keyref :md5]
-   [:subtag :md5]
-   [:key-hash :md5]
-   [:date :rev-date]
-   [:df-seq-id :long]])
-
-(defmulti query-code :match-type)
+(defmulti query-code :q)
 
 (defmethod query-code :in
-  [{:keys [match-value keysegment-key]} cont]
+  [{:keys [values keysegment-key]} cont]
   (fn [prefix-bindings]
     (let [value-binding (gensym (str (name keysegment-key) "-in-binding"))]
-      `(doseq [~value-binding (sort ~match-value)]
+      `(doseq [~value-binding (sort ~values)]
          ~(cont (assoc prefix-bindings
                        keysegment-key value-binding))))))
 
 (defmethod query-code :eq
-  [{:keys [match-value keysegment-key] :as context} cont]
-  (query-code
-    (assoc context :match-type :in :match-value [match-value])
-    cont))
-
-(defn- with-seq-and-continue
-  [{:keys [prefix-bindings cont prefix-keys]
-    :or {prefix-keys (keys prefix-bindings)}
-    {:keys [structure-type
-            key-binding
-            iterator-binding
-            keysegment-key]} :context}
-   & body]
-  (let [value-binding (gensym (name keysegment-key))]
-    `(when-let [~key-binding (seek-in-prefix
-                               ~structure-type
-                               ~(into [] prefix-keys)
-                               ~iterator-binding ~key-binding)]
-       (let [~value-binding (bt/extract-keysegment
-                              ~structure-type
-                              ~keysegment-key
-                              ~key-binding)]
-         ~(cont (assoc prefix-bindings
-                       keysegment-key value-binding)))
-       ~@body)))
-
-(defn- make-binding-prefix
-  [structure-type prefix-bindings]
-  `(bt/make-key-prefix
-     ~structure-type
-     ~@(flatten (seq prefix-bindings))))
+  [{:keys [value keysegment-key] :as context} cont]
+  (query-code (assoc context :q :in :values [value]) cont))
 
 (defmethod query-code :any
-  [{:keys [keysegment-key iterator-binding key-binding structure-type]
+  [{:keys [keysegment-key iterator-binding key-binding structure-type
+           limit after]
     :as context} cont]
   (fn [prefix-bindings]
-    `(loop [~key-binding ~(make-binding-prefix structure-type prefix-bindings)]
-       ~(with-seq-and-continue
-          {:context context
-           :prefix-bindings prefix-bindings
-           :cont cont}
-          `(when (bt/increment-key-segment!
-                   ~structure-type ~keysegment-key
-                   ~key-binding)
-             (recur ~key-binding))))))
-
-(defmethod query-code :first
-  [{:keys [keysegment-key iterator-binding structure-type key-binding]
-    :as context} cont]
-  (fn [prefix-bindings]
-    `(let [~key-binding ~(make-binding-prefix structure-type prefix-bindings)]
-       ~(with-seq-and-continue
-          {:context context
-           :prefix-bindings prefix-bindings
-           :cont cont}))))
-
-(defmethod query-code :first-after
-  [{:keys [keysegment-key iterator-binding match-value structure-type
-           key-binding]
-    :as context} cont]
-  (fn [prefix-bindings]
-    (let [prefix-keys (keys prefix-bindings)
-          prefix-bindings (assoc prefix-bindings keysegment-key match-value)]
-      `(let [~key-binding ~(make-binding-prefix structure-type prefix-bindings)]
-         ~(with-seq-and-continue
-            {:context context
-             :prefix-keys prefix-keys
-             :prefix-bindings prefix-bindings
-             :cont cont})))))
-
-(defmethod query-code :after
-  [{:keys [keysegment-key iterator-binding match-value structure-type
-           key-binding]
-    :as context} cont]
-  (fn [prefix-bindings]
-    (let [match-binding (gensym (str (name keysegment-key) "-after"))
+    (let [value-binding (gensym (name keysegment-key))
+          iter-count-binding (gensym "iter-count")
           prefix-keys (keys prefix-bindings)
-          prefix-bindings (assoc prefix-bindings
-                                 keysegment-key
-                                 match-binding)]
-      `(let [~match-binding ~match-value]
-         (loop [~key-binding ~(make-binding-prefix structure-type prefix-bindings)]
-           ~(with-seq-and-continue
-              {:context context
-               :prefix-keys prefix-keys
-               :prefix-bindings prefix-bindings
-               :cont cont}
-              `(when (bt/increment-key-segment!
-                       ~structure-type ~keysegment-key
-                       ~key-binding)
-                 (recur ~key-binding))))))))
+          prefix-bindings (if after
+                            (assoc prefix-bindings keysegment-key after)
+                            prefix-bindings)]
+      `(loop [~iter-count-binding 1
+              ~key-binding (bt/make-key-prefix
+                             ~structure-type
+                             ~@(flatten (seq prefix-bindings)))]
+         (when-let [~key-binding (seek-in-prefix
+                                   ~structure-type
+                                   ~(into [] prefix-keys)
+                                   ~iterator-binding ~key-binding)]
+           (let [~value-binding (bt/extract-keysegment
+                                  ~structure-type
+                                  ~keysegment-key
+                                  ~key-binding)]
+             ~(cont (assoc prefix-bindings
+                           keysegment-key value-binding)))
+           (when (and
+                   (< ~iter-count-binding ~limit)
+                   (bt/increment-key-segment!
+                     ~structure-type ~keysegment-key
+                     ~key-binding))
+             (recur
+               (inc ~iter-count-binding)
+               ~key-binding)))))))
 
 (deftype QueryIterator [iterator runner]
   clojure.lang.Seqable
@@ -169,12 +105,12 @@
         (reduce
           (fn [next-cont [keysegment-key mapping]]
             (query-code
-              {:keysegment-key keysegment-key
-               :key-binding key-binding
-               :match-type (first (keys mapping))
-               :match-value (first (vals mapping))
-               :structure-type structure-type
-               :iterator-binding iterator-binding}
+              (merge
+                mapping
+                {:keysegment-key keysegment-key
+                 :key-binding key-binding
+                 :structure-type structure-type
+                 :iterator-binding iterator-binding})
               next-cont))
           (fn [prefix-bindings]
             `(when-let [key# (current-key ~iterator-binding)]
@@ -193,6 +129,6 @@
              ~(toplevel-runner {})
              @current-acc#
              (catch Exception e#
-               (if (::exit (ex-info e#))
+               (if (::exit (ex-data e#))
                  @@current-acc#
                  (throw e#)))))))))

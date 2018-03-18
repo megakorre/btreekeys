@@ -49,16 +49,16 @@
   (are [q v] (= v (seq (q/execute-query ::key (iterator sample-set) q)))
 
     ;; find first off every group
-    {:head {:eq 1}
-     :body {:in [2 3]}
-     :tail {:first true}}
+    {:head {:q :eq :value 1}
+     :body {:q :in :values [2 3]}
+     :tail {:q :any :limit 1}}
     [{:head 1, :body 2, :tail 0}
      {:head 1, :body 3, :tail 0}]
 
     ;; find all in every group
-    {:head {:eq 1}
-     :body {:in [2 3]}
-     :tail {:any true}}
+    {:head {:q :eq :value 1}
+     :body {:q :in :values [2 3]}
+     :tail {:q :any}}
     [{:head 1, :body 2, :tail 0}
      {:head 1, :body 2, :tail 1}
      {:head 1, :body 2, :tail 2}
@@ -70,17 +70,18 @@
      {:head 1, :body 3, :tail 3}
      {:head 1, :body 3, :tail 4}]
 
+
     ;; find first after 2
-    {:head {:eq 1}
-     :body {:in [2 3]}
-     :tail {:first-after 2}}
+    {:head {:q :eq :value 1}
+     :body {:q :in :values [2 3]}
+     :tail {:q :any :limit 1 :after 2}}
     [{:head 1, :body 2, :tail 2}
      {:head 1, :body 3, :tail 2}]
 
     ;; find all after 2
-    {:head {:eq 1}
-     :body {:in [2 3]}
-     :tail {:after 2}}
+    {:head {:q :eq :value 1}
+     :body {:q :in :values [2 3]}
+     :tail {:q :any :after 2}}
     [{:head 1, :body 2, :tail 2}
      {:head 1, :body 2, :tail 3}
      {:head 1, :body 2, :tail 4}
@@ -88,16 +89,16 @@
      {:head 1, :body 3, :tail 3}
      {:head 1, :body 3, :tail 4}]
 
-    {:head {:first true}
-     :body {:first true}
-     :tail {:after 2}}
+    {:head {:q :any :limit 1}
+     :body {:q :any :limit 1}
+     :tail {:q :any :after 2}}
     [{:head 1, :body 0, :tail 2}
      {:head 1, :body 0, :tail 3}
      {:head 1, :body 0, :tail 4}]
 
-    {:head {:first true}
-     :body {:first-after 1}
-     :tail {:after 2}}
+    {:head {:q :any :limit 1}
+     :body {:q :any :limit 1 :after 1}
+     :tail {:q :any :after 2}}
     [{:head 1, :body 1, :tail 2}
      {:head 1, :body 1, :tail 3}
      {:head 1, :body 1, :tail 4}]))
