@@ -108,9 +108,16 @@
                      [k `(get ~input-map-sym ~k)]))))))
 
 (defn- assert-is-valid-prefix
-  [_ _]
-  ;; TODO
- )
+  [structure-type prefix-keys]
+  (let [prefix-set (set prefix-keys)]
+    (when-not (->> structure-type
+                   key-structure
+                   (map first)
+                   (take (count prefix-keys))
+                   (every? prefix-set))
+      (throw (ex-info "keys are not a valid prefix of structure-type"
+                      {:structure-type structure-type
+                       :prefix-keys prefix-keys})))))
 
 (defn prefix-structure
   [structure-type prefix-keys]
