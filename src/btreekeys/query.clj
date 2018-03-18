@@ -5,6 +5,7 @@
   (:import java.util.Arrays))
 
 (defprotocol Iterator
+  (next [this])
   (seek [this key-prefix])
   (current-key [this]))
 
@@ -22,6 +23,26 @@
                  prefix-val-before#
                  (Arrays/copyOfRange key# 0 ~prefix-size))
            key#)))))
+
+(defmacro next-while-in-prefix
+  [structure-type prefix-keys
+   iterator-binding key-binding & body]
+  (let [prefix-structure (bt/prefix-structure
+                           structure-type prefix-keys)
+        prefix-size (bt/structure-size prefix-structure)]
+    `(let [prefix-val-before# (Arrays/copyOfRange
+                                ~key-binding 0 ~prefix-size)]
+       (loop []
+         (when-let [key# (next ~iterator-binding)]
+           (if (Arrays/equals
+                   prefix-val-before#
+                   (Arrays/copyOfRange key# 0 ~prefix-size))
+             (do
+               ~@body
+               (recur))
+             (do
+               (println "leaving prefix")
+               nil)))))))
 
 (defn normalize-query
   [structure query-map]
@@ -111,8 +132,21 @@
                  :iterator-binding iterator-binding})
               next-cont))
           (fn [prefix-bindings]
-            `(when-let [key# (current-key ~iterator-binding)]
-               (~submit-key! (bt/parse-key ~structure-type key#))))
+            `(let [~key-binding (bt/make-key-prefix
+                                  ~structure-type
+                                  ~@(flatten (seq prefix-bindings)))]
+               (when-let [~key-binding (seek-in-prefix
+                                         ~structure-type
+                                         ~(keys prefix-bindings)
+                                         ~iterator-binding
+                                         ~key-binding)]
+                 (~submit-key! (bt/parse-key ~structure-type ~key-binding))
+                 (next-while-in-prefix
+                   ~structure-type
+                   ~(keys prefix-bindings)
+                   ~iterator-binding
+                   ~key-binding
+                   (~submit-key! (bt/parse-key ~structure-type ~key-binding))))))
           (reverse query))]
     `(QueryIterator.
        ~iterator-expr
