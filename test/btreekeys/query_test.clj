@@ -43,6 +43,16 @@
         (bt/make-key ::key {:head 2
                             :body 1
                             :tail 1}))
+
+  (.add sample-set
+        (bt/make-key ::key {:head 1
+                            :body 4
+                            :tail 230}))
+
+  (.add sample-set
+        (bt/make-key ::key {:head 1
+                            :body 5
+                            :tail 230}))
   (dotimes [body 4]
     (dotimes [tail 5]
       (.add sample-set
@@ -76,6 +86,18 @@
      :tail {:q :any :limit 1}}
     [{:head 1, :body 2, :tail 0}
      {:head 1, :body 3, :tail 0}]
+
+    ;; find first off first existing group
+    {:head {:q :eq :value 1}
+     :body {:q :in :values [2 3 4 5] :limit 1}
+     :tail {:q :eq :value 230}}
+    [{:head 1, :body 4, :tail 230}]
+
+    ;; find first off every group skip first group
+    {:head {:q :eq :value 1}
+     :body {:q :in :values [2 3] :after 3}
+     :tail {:q :any :limit 1}}
+    [{:head 1, :body 3, :tail 0}]
 
     ;; find all in every group
     {:head {:q :eq :value 1}

@@ -135,9 +135,7 @@
         buffer-bind (with-meta (gensym "buffer") {:tag ByteBuffer})]
     `(let [~buffer-bind (ByteBuffer/allocate ~(structure-size structure))]
        ~@(for [[keysegment-key _] structure]
-           `(do
-              (println ~(get prefix-expressions keysegment-key))
-              (.put ~buffer-bind ^bytes ~(get prefix-expressions keysegment-key))))
+           `(.put ~buffer-bind ^bytes ~(get prefix-expressions keysegment-key)))
        (.array ~buffer-bind))))
 
 (defn- parse-code

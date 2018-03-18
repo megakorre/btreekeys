@@ -93,16 +93,30 @@
          (seq tree-set#)))))
 
 (defmethod query-code :in
-  [{:keys [values keysegment-key structure-type after]} cont]
+  [{:keys [values keysegment-key structure-type after
+           limit vals-produced-binding]} cont]
   (fn [prefix-bindings]
     (let [value-binding (gensym (str (name keysegment-key) "-in-binding"))]
-      `(doseq [^bytes ~value-binding (lexicographical-sort
-                                       ~structure-type
-                                       ~keysegment-key
-                                       ~after
-                                       ~values)]
-         ~(cont (assoc prefix-bindings
-                       keysegment-key value-binding))))))
+      `(loop [produced-count# 0
+              val-produced# (volatile! false)
+              [^bytes ~value-binding
+               & rest#] (lexicographical-sort
+                          ~structure-type
+                          ~keysegment-key
+                          ~after
+                          ~values)]
+         (vswap! ~vals-produced-binding conj val-produced#)
+         (when ~value-binding
+           ~(cont (assoc prefix-bindings
+                         keysegment-key value-binding))
+           (let [new-produced-count# (if @val-produced#
+                                       (inc produced-count#)
+                                       produced-count#)]
+             (when (< new-produced-count# ~limit)
+               (recur
+                 new-produced-count#
+                 (volatile! false)
+                 rest#))))))))
 
 (defmethod query-code :eq
   [{:keys [value keysegment-key] :as context} cont]
@@ -110,11 +124,10 @@
 
 (defmethod query-code :any
   [{:keys [keysegment-key iterator-binding key-binding structure-type
-           limit after]
+           limit after vals-produced-binding]
     :as context} cont]
   (fn [prefix-bindings]
     (let [value-binding (gensym (name keysegment-key))
-          iter-count-binding (gensym "iter-count")
           prefix-keys (keys prefix-bindings)
           prefix-bindings (if after
                             (assoc
@@ -124,10 +137,12 @@
                                                 ~keysegment-key
                                                 ~after))
                             prefix-bindings)]
-      `(loop [~iter-count-binding 1
+      `(loop [produced-count# 0
+              val-produced# (volatile! false)
               ~key-binding (bt/make-byte-prefix
                              ~structure-type
                              ~@(apply concat prefix-bindings))]
+         (vswap! ~vals-produced-binding conj val-produced#)
          (when-let [~key-binding (seek-in-prefix
                                    ~structure-type
                                    ~(into [] prefix-keys)
@@ -137,13 +152,17 @@
                                   ~keysegment-key
                                   ~key-binding)]
              ~(cont (assoc prefix-bindings keysegment-key value-binding)))
-           (when (and (< ~iter-count-binding ~limit)
-                      (bt/increment-key-segment!
-                        ~structure-type ~keysegment-key
-                        ~key-binding))
-             (recur
-               (inc ~iter-count-binding)
-               ~key-binding)))))))
+           (let [new-produced-count# (if @val-produced#
+                                       (inc produced-count#)
+                                       produced-count#)]
+             (when (and (< new-produced-count# ~limit)
+                        (bt/increment-key-segment!
+                          ~structure-type ~keysegment-key
+                          ~key-binding))
+               (recur
+                 new-produced-count#
+                 (volatile! false)
+                 ~key-binding))))))))
 
 (deftype QueryIterator [iterator runner]
   clojure.lang.Seqable
@@ -167,6 +186,7 @@
         iterator-binding (gensym "iterator")
         key-binding (gensym "key-binding")
         submit-key! (gensym "submit-key!")
+        vals-produced-binding (gensym "vals-produced")
         toplevel-runner
         (reduce
           (fn [next-cont [keysegment-key mapping]]
@@ -175,6 +195,7 @@
                 mapping
                 {:keysegment-key keysegment-key
                  :key-binding key-binding
+                 :vals-produced-binding vals-produced-binding
                  :structure-type structure-type
                  :iterator-binding iterator-binding})
               next-cont))
@@ -199,8 +220,12 @@
        ~iterator-expr
        (fn [iterator# rf# init#]
          (let [current-acc# (volatile! init#)
+               ~vals-produced-binding (volatile! ())
                ~iterator-binding iterator#
                ~submit-key! (fn [key#]
+                              (doseq [ref# @~vals-produced-binding]
+                                (vreset! ref# true))
+                              (vreset! ~vals-produced-binding ())
                               (vreset! current-acc# (rf# @current-acc# key#))
                               (when (reduced? @current-acc#)
                                 (throw (ex-info "exit early" {::exit true}))))]
