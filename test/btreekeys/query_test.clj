@@ -78,6 +78,15 @@
     [{:head 1, :body 2, :tail 2}
      {:head 1, :body 3, :tail 2}]
 
+    ;; find first 2 after 2
+    {:head {:q :eq :value 1}
+     :body {:q :in :values [2 3]}
+     :tail {:q :any :limit 2 :after 2}}
+    [{:head 1, :body 2, :tail 2}
+     {:head 1, :body 2, :tail 3}
+     {:head 1, :body 3, :tail 2}
+     {:head 1, :body 3, :tail 3}]
+
     ;; find all after 2
     {:head {:q :eq :value 1}
      :body {:q :in :values [2 3]}
