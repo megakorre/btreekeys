@@ -93,6 +93,18 @@
      :tail {:q :eq :value 230}}
     [{:head 1, :body 4, :tail 230}]
 
+    ;; return nothing on limit of 0
+    {:head {:q :eq :value 1}
+     :body {:q :in :values [2]}
+     :tail {:q :any :limit 0}}
+    []
+
+    ;; find first off every group skip first group
+    {:head {:q :eq :value 1}
+     :body {:q :in :values [2 3] :after 3 :limit 0}
+     :tail {:q :any :limit 1}}
+    []
+
     ;; find first off every group skip first group
     {:head {:q :eq :value 1}
      :body {:q :in :values [2 3] :after 3}
