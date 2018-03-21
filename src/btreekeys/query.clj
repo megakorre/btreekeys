@@ -59,7 +59,7 @@
   (reverse
     (drop-while
       (fn [[k query-item]]
-        (= query-item {:q :any :limit Long/MAX_VALUE :after nil}))
+        (= query-item {:q :any :limit Long/MAX_VALUE :start nil :after nil}))
       (reverse query))))
 
 (defn normalize-query
@@ -69,56 +69,59 @@
     [keysegment-key
      (merge
        {:limit Long/MAX_VALUE
-        :after nil}
+        :after nil
+        :start nil}
        (if (nil? value) {:q :any} value))]))
 
 (defmulti query-code :q)
 
 (defmacro lexicographical-sort
-  [structure-type keysegment-key skip-expr items]
+  [structure-type keysegment-key skip-binding items]
   (let [value-binding (gensym (name keysegment-key))]
-    `(let [skip# ~skip-expr
-           tree-set# (TreeSet. ^Comparator
+    `(let [tree-set# (TreeSet. ^Comparator
                            (UnsignedBytes/lexicographicalComparator))]
        (doseq [~value-binding ~items]
          (.add tree-set# (bt/make-keysegment
                            ~structure-type
                            ~keysegment-key
                            ~value-binding)))
-       (if skip#
-         (seq (.tailSet tree-set# (bt/make-keysegment
-                                    ~structure-type
-                                    ~keysegment-key
-                                    skip#)))
+       (if ~skip-binding
+         (seq (.tailSet tree-set# ~skip-binding))
          (seq tree-set#)))))
 
 (defmethod query-code :in
-  [{:keys [values keysegment-key structure-type after
+  [{:keys [values keysegment-key structure-type start after
            limit vals-produced-binding]} cont]
   (fn [prefix-bindings]
-    (let [value-binding (gensym (str (name keysegment-key) "-in-binding"))]
-
+    (let [value-binding (gensym (str (name keysegment-key) "-in-binding"))
+          start-binding (gensym "start")]
       `(when (> ~limit 0)
-         (loop [produced-count# 0
-                val-produced# (volatile! false)
-                [^bytes ~value-binding
-                 & rest#] (lexicographical-sort
-                            ~structure-type
-                            ~keysegment-key
-                            ~after
-                            ~values)]
-           (vswap! ~vals-produced-binding conj val-produced#)
-           (when ~value-binding
-             ~(cont (assoc prefix-bindings
-                           keysegment-key value-binding))
-             (let [new-produced-count# (if @val-produced#
-                                         (inc produced-count#)
-                                         produced-count#)]
-               (when (< new-produced-count# ~limit)
-                 (recur
-                   new-produced-count#
-                   (volatile! false)
-                   rest#)))))))))
+         (let [~start-binding (when-let [start# ~(or after start)]
+                                (bt/make-keysegment
+                                  ~structure-type ~keysegment-key start#))]
+           ~@(when after
+               [`(bt/increment-byte-range!
+                   ~start-binding 0 (dec (alength ~start-binding)))])
+           (loop [produced-count# 0
+                  val-produced# (volatile! false)
+                  [^bytes ~value-binding
+                   & rest#] (lexicographical-sort
+                              ~structure-type
+                              ~keysegment-key
+                              ~start-binding
+                              ~values)]
+             (vswap! ~vals-produced-binding conj val-produced#)
+             (when ~value-binding
+               ~(cont (assoc prefix-bindings
+                             keysegment-key value-binding))
+               (let [new-produced-count# (if @val-produced#
+                                           (inc produced-count#)
+                                           produced-count#)]
+                 (when (< new-produced-count# ~limit)
+                   (recur
+                     new-produced-count#
+                     (volatile! false)
+                     rest#))))))))))
 
 (defmethod query-code :eq
   [{:keys [value keysegment-key] :as context} cont]
@@ -126,46 +129,53 @@
 
 (defmethod query-code :any
   [{:keys [keysegment-key iterator-binding key-binding structure-type
-           limit after vals-produced-binding]
+           limit start after vals-produced-binding]
     :as context} cont]
   (fn [prefix-bindings]
     (let [value-binding (gensym (name keysegment-key))
           prefix-keys (keys prefix-bindings)
-          prefix-bindings (if after
-                            (assoc
-                              prefix-bindings
-                              keysegment-key `(bt/make-keysegment
-                                                ~structure-type
-                                                ~keysegment-key
-                                                ~after))
-                            prefix-bindings)]
+          prefix-bindings
+          (if (or after start)
+            (assoc
+              prefix-bindings
+              keysegment-key
+              `(bt/make-keysegment
+                 ~structure-type
+                 ~keysegment-key
+                 ~(or after start)))
+            prefix-bindings)]
       `(when (> ~limit 0)
-         (loop [produced-count# 0
-                val-produced# (volatile! false)
-                ~key-binding (bt/make-byte-prefix
-                               ~structure-type
-                               ~@(apply concat prefix-bindings))]
-           (vswap! ~vals-produced-binding conj val-produced#)
-           (when-let [~key-binding (seek-in-prefix
-                                     ~structure-type
-                                     ~(into [] prefix-keys)
-                                     ~iterator-binding ~key-binding)]
-             (let [~value-binding (bt/extract-keysegment-byte
-                                    ~structure-type
-                                    ~keysegment-key
-                                    ~key-binding)]
-               ~(cont (assoc prefix-bindings keysegment-key value-binding)))
-             (let [new-produced-count# (if @val-produced#
-                                         (inc produced-count#)
-                                         produced-count#)]
-               (when (and (< new-produced-count# ~limit)
-                          (bt/increment-key-segment!
-                            ~structure-type ~keysegment-key
-                            ~key-binding))
-                 (recur
-                   new-produced-count#
-                   (volatile! false)
-                   ~key-binding)))))))))
+         (let [~key-binding (bt/make-byte-prefix
+                              ~structure-type
+                              ~@(apply concat prefix-bindings))]
+           ~@(when after
+               [`(bt/increment-key-segment!
+                   ~structure-type ~keysegment-key
+                   ~key-binding)])
+           (loop [produced-count# 0
+                  val-produced# (volatile! false)
+                  ~key-binding ~key-binding]
+             (vswap! ~vals-produced-binding conj val-produced#)
+             (when-let [~key-binding (seek-in-prefix
+                                       ~structure-type
+                                       ~(into [] prefix-keys)
+                                       ~iterator-binding ~key-binding)]
+               (let [~value-binding (bt/extract-keysegment-byte
+                                      ~structure-type
+                                      ~keysegment-key
+                                      ~key-binding)]
+                 ~(cont (assoc prefix-bindings keysegment-key value-binding)))
+               (let [new-produced-count# (if @val-produced#
+                                           (inc produced-count#)
+                                           produced-count#)]
+                 (when (and (< new-produced-count# ~limit)
+                            (bt/increment-key-segment!
+                              ~structure-type ~keysegment-key
+                              ~key-binding))
+                   (recur
+                     new-produced-count#
+                     (volatile! false)
+                     ~key-binding))))))))))
 
 (deftype QueryIterator [iterator runner]
   clojure.lang.Seqable

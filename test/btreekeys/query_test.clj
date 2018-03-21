@@ -68,8 +68,8 @@
       #(bt/parse-key ::key %)
       sample-set)
 
-    ;; find all after
-    {:body {:q :any :after 2}}
+    ;; find all start
+    {:body {:q :any :start 2}}
     (->> sample-set
          (map #(bt/parse-key ::key %))
          (filter #(<= 2 (:body %))))
@@ -101,13 +101,19 @@
 
     ;; find first off every group skip first group
     {:head {:q :eq :value 1}
-     :body {:q :in :values [2 3] :after 3 :limit 0}
+     :body {:q :in :values [2 3] :start 3 :limit 0}
      :tail {:q :any :limit 1}}
     []
 
     ;; find first off every group skip first group
     {:head {:q :eq :value 1}
-     :body {:q :in :values [2 3] :after 3}
+     :body {:q :in :values [2 3] :start 3}
+     :tail {:q :any :limit 1}}
+    [{:head 1, :body 3, :tail 0}]
+
+    ;; find first off every group skip first group
+    {:head {:q :eq :value 1}
+     :body {:q :in :values [2 3] :after 2}
      :tail {:q :any :limit 1}}
     [{:head 1, :body 3, :tail 0}]
 
@@ -126,26 +132,26 @@
      {:head 1, :body 3, :tail 3}
      {:head 1, :body 3, :tail 4}]
 
-    ;; find first after 2
+    ;; find first start 2
     {:head {:q :eq :value 1}
      :body {:q :in :values [2 3]}
-     :tail {:q :any :limit 1 :after 2}}
+     :tail {:q :any :limit 1 :start 2}}
     [{:head 1, :body 2, :tail 2}
      {:head 1, :body 3, :tail 2}]
 
-    ;; find first 2 after 2
+    ;; find first 2 start 2
     {:head {:q :eq :value 1}
      :body {:q :in :values [2 3]}
-     :tail {:q :any :limit 2 :after 2}}
+     :tail {:q :any :limit 2 :start 2}}
     [{:head 1, :body 2, :tail 2}
      {:head 1, :body 2, :tail 3}
      {:head 1, :body 3, :tail 2}
      {:head 1, :body 3, :tail 3}]
 
-    ;; find all after 2
+    ;; find all start 2
     {:head {:q :eq :value 1}
      :body {:q :in :values [2 3]}
-     :tail {:q :any :after 2}}
+     :tail {:q :any :start 2}}
     [{:head 1, :body 2, :tail 2}
      {:head 1, :body 2, :tail 3}
      {:head 1, :body 2, :tail 4}
@@ -153,16 +159,25 @@
      {:head 1, :body 3, :tail 3}
      {:head 1, :body 3, :tail 4}]
 
+    ;; find all after 2
+    {:head {:q :eq :value 1}
+     :body {:q :in :values [2 3]}
+     :tail {:q :any :after 2}}
+    [{:head 1, :body 2, :tail 3}
+     {:head 1, :body 2, :tail 4}
+     {:head 1, :body 3, :tail 3}
+     {:head 1, :body 3, :tail 4}]
+
     {:head {:q :any :limit 1}
      :body {:q :any :limit 1}
-     :tail {:q :any :after 2}}
+     :tail {:q :any :start 2}}
     [{:head 1, :body 0, :tail 2}
      {:head 1, :body 0, :tail 3}
      {:head 1, :body 0, :tail 4}]
 
     {:head {:q :any :limit 1}
-     :body {:q :any :limit 1 :after 1}
-     :tail {:q :any :after 2}}
+     :body {:q :any :limit 1 :start 1}
+     :tail {:q :any :start 2}}
     [{:head 1, :body 1, :tail 2}
      {:head 1, :body 1, :tail 3}
      {:head 1, :body 1, :tail 4}]))
