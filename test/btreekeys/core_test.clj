@@ -2,6 +2,8 @@
   (:require [clojure.test :refer :all]
             [btreekeys.core :as bt]))
 
+(set! *warn-on-reflection* true)
+
 (defmethod bt/key-structure ::sample
   [_]
   [[:head :long]

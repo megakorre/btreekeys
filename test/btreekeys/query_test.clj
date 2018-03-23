@@ -8,17 +8,19 @@
            com.google.common.primitives.UnsignedBytes
            java.util.Arrays))
 
-(deftype SortedSetIterator [coll position]
+(set! *warn-on-reflection* true)
+
+(deftype SortedSetIterator [^TreeSet coll position]
   q/Iterator
   (next-item [_]
-    (when-let [key (if @position
+    (when-let [^bytes key (if @position
                      (.higher coll @position)
                      (.first coll))]
       (reset! position key)
       (Arrays/copyOf key (alength key))))
   (current-key [_] @position)
   (seek [_ key-prefix]
-    (when-let [key (.ceiling coll key-prefix)]
+    (when-let [^bytes key (.ceiling coll key-prefix)]
       (reset! position key)
       (Arrays/copyOf key (alength key)))))
 
@@ -33,9 +35,9 @@
   (SortedSetIterator. sorted-set (atom nil)))
 
 (do
-  (def sample-set
+  (def ^TreeSet sample-set
     (TreeSet. (UnsignedBytes/lexicographicalComparator)))
-  (.add sample-set
+  (.add ^TreeSet sample-set
         (bt/make-key ::key {:head 1
                             :body 1
                             :tail 1}))

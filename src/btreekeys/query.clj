@@ -22,14 +22,14 @@
         prefix-size (bt/structure-size prefix-structure)]
     (if (seq prefix-keys)
       `(let [prefix-val-before# (Arrays/copyOfRange
-                                  ~key-binding 0 ~prefix-size)]
-         (when-let [key# (seek ~iterator-binding ~key-binding)]
+                                  (bytes ~key-binding) 0 ~prefix-size)]
+         (when-let [~key-binding (seek ~iterator-binding ~key-binding)]
            (when (Arrays/equals
                    prefix-val-before#
-                   (Arrays/copyOfRange key# 0 ~prefix-size))
-             key#)))
-      `(when-let [key# (seek ~iterator-binding ~key-binding)]
-         key#))))
+                   (Arrays/copyOfRange (bytes ~key-binding) 0 ~prefix-size))
+             ~key-binding)))
+      `(when-let [~key-binding (seek ~iterator-binding ~key-binding)]
+         ~key-binding))))
 
 (defmacro next-while-in-prefix
   [structure-type prefix-keys
@@ -39,12 +39,12 @@
         prefix-size (bt/structure-size prefix-structure)]
     (if (seq prefix-keys)
       `(let [prefix-val-before# (Arrays/copyOfRange
-                                  ~key-binding 0 ~prefix-size)]
+                                  (bytes ~key-binding) 0 ~prefix-size)]
          (loop []
            (when-let [~key-binding (next-item ~iterator-binding)]
              (when (Arrays/equals
                    prefix-val-before#
-                   (Arrays/copyOfRange ~key-binding 0 ~prefix-size))
+                   (Arrays/copyOfRange (bytes ~key-binding) 0 ~prefix-size))
                ~@body
                (recur)))))
       `(loop []
@@ -196,7 +196,7 @@
                    (normalize-query (bt/key-structure structure-type))
                    optimize-query)
         iterator-binding (gensym "iterator")
-        key-binding (gensym "key-binding")
+        key-binding (with-meta (gensym "key-binding") {:tag bytes})
         submit-key! (gensym "submit-key!")
         vals-produced-binding (gensym "vals-produced")
         toplevel-runner

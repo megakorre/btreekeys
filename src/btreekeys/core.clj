@@ -141,8 +141,10 @@
   (let [structure (prefix-structure structure-type (keys prefix-expressions))
         buffer-bind (with-meta (gensym "buffer") {:tag ByteBuffer})]
     `(let [~buffer-bind (ByteBuffer/allocate ~(structure-size structure))]
-       ~@(for [[keysegment-key _] structure]
-           `(.put ~buffer-bind ^bytes ~(get prefix-expressions keysegment-key)))
+       ~@(for [[keysegment-key _] structure
+               :let [key-binding (with-meta (gensym "key") {:tag 'bytes})]]
+           `(let [~key-binding ~(get prefix-expressions keysegment-key)]
+              (.put ~buffer-bind ~key-binding)))
        (.array ~buffer-bind))))
 
 (defn- parse-code
@@ -196,7 +198,7 @@
   (let [[segment-start segment-end]
         (keysegment-range structure-type keysegment-key)]
     `(Arrays/copyOfRange
-       ~bytes-expr
+       (bytes ~bytes-expr)
        ~segment-start
        ~(inc segment-end))))
 
