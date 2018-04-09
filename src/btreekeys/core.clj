@@ -150,9 +150,10 @@
 (defn- parse-code
   [structure input-bytes-expr]
   (let [buffer-sym (gensym "buffer")]
-    `(let [~buffer-sym (ByteBuffer/wrap ~input-bytes-expr)]
+    `(let [input-bytes# ~input-bytes-expr
+           ~buffer-sym (ByteBuffer/wrap ~input-bytes-expr)]
        (into
-         {}
+         {:btreekeys/bytes input-bytes#}
          [~@(for [[keysegment-key keysegment-type] structure]
               `[~keysegment-key
                 ~(keysegment-read-code

@@ -2,6 +2,7 @@
   (:require
    [btreekeys.core :as bt]
    [btreekeys.query :as q]
+   [btreekeys.util :refer [remove-bytes]]
    [clojure.test :refer :all])
   (:import java.util.TreeSet
            java.util.Comparator
@@ -63,17 +64,19 @@
                                 :tail tail})))))
 
 (deftest test-queries
-  (are [q v] (= v (q/execute-query ::key (iterator sample-set) q))
+  (are [q v] (= v (map remove-bytes (q/execute-query ::key (iterator sample-set) q)))
     ;; find all
     {}
-    (map
-      #(bt/parse-key ::key %)
-      sample-set)
+    (map remove-bytes
+         (map
+           #(bt/parse-key ::key %)
+           sample-set))
 
     ;; find all start
     {:body {:q :any :start 2}}
     (->> sample-set
          (map #(bt/parse-key ::key %))
+         (map remove-bytes)
          (filter #(<= 2 (:body %))))
 
      ;; find exact match

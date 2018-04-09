@@ -1,6 +1,7 @@
 (ns btreekeys.core-test
   (:require [clojure.test :refer :all]
-            [btreekeys.core :as bt]))
+            [btreekeys.core :as bt]
+            [btreekeys.util :refer [remove-bytes]]))
 
 (set! *warn-on-reflection* true)
 
@@ -21,7 +22,7 @@
 (deftest test-parse-key
   (let [original {:head 123 :body 321 :tail 765}
         k (bt/make-key ::sample original)]
-    (is (= (bt/parse-key ::sample k) original))))
+    (is (= (remove-bytes (bt/parse-key ::sample k)) original))))
 
 (deftest test-make-prefix
   (is (= (seq (bt/make-key-prefix
@@ -38,13 +39,13 @@
     :tail [16 23]))
 
 (deftest test-parse-prefix
-  (is (= (bt/parse-key-prefix
-           ::sample
-           [:head :body]
-           (bt/make-key-prefix
-             ::sample
-             :head 231213112313
-             :body 432432434323))
+  (is (= (remove-bytes (bt/parse-key-prefix
+                         ::sample
+                         [:head :body]
+                         (bt/make-key-prefix
+                           ::sample
+                           :head 231213112313
+                           :body 432432434323)))
          {:head 231213112313
           :body 432432434323})))
 
