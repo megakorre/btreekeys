@@ -242,6 +242,13 @@
                               (when (reduced? @current-acc#)
                                 (throw (ex-info "exit early" {::exit true}))))]
            (try
+             ~@(when-let [start-expr (:btreekeys/start query-map)]
+                 [`(seek ~iterator-binding ~start-expr)])
+
+             ~@(when-let [after-expr (:btreekeys/after query-map)]
+                 [`(seek ~iterator-binding ~after-expr)
+                  `(next-item ~iterator-binding)])
+
              ~(toplevel-runner {})
              @current-acc#
              (catch Exception e#

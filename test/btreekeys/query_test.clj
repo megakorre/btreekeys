@@ -7,7 +7,8 @@
   (:import java.util.TreeSet
            java.util.Comparator
            com.google.common.primitives.UnsignedBytes
-           java.util.Arrays))
+           java.util.Arrays
+           java.util.SortedSet))
 
 (set! *warn-on-reflection* true)
 
@@ -21,9 +22,11 @@
       (Arrays/copyOf key (alength key))))
   (current-key [_] @position)
   (seek [_ key-prefix]
-    (when-let [^bytes key (.ceiling coll key-prefix)]
-      (reset! position key)
-      (Arrays/copyOf key (alength key)))))
+    (let [^SortedSet tail (if @position (.tailSet coll @position) coll)]
+      (when-let [^bytes key (.ceiling coll key-prefix)]
+        (let [^bytes key (if (.contains tail key) key (.first tail))]
+          (reset! position key)
+          (Arrays/copyOf key (alength key)))))))
 
 (defmethod bt/key-structure ::key
   [_]
@@ -62,6 +65,8 @@
             (bt/make-key ::key {:head 1
                                 :body body
                                 :tail tail})))))
+
+
 
 (deftest test-queries
   (are [q v] (= v (map remove-bytes (q/execute-query ::key (iterator sample-set) q)))
@@ -186,3 +191,45 @@
     [{:head 1, :body 1, :tail 2}
      {:head 1, :body 1, :tail 3}
      {:head 1, :body 1, :tail 4}]))
+
+(deftest test-total-key-offsets
+  (let [start (transduce
+                (take 2)
+                (completing conj)
+                []
+                (q/execute-query
+                  ::key
+                  (iterator sample-set)
+                  {}))
+        bytes (:btreekeys/bytes (last start))
+        overlap (transduce
+                  (take 2)
+                  (completing conj)
+                  []
+                  (q/execute-query
+                    ::key
+                    (iterator sample-set)
+                    {:btreekeys/start bytes}))
+        after (transduce
+                (take 2)
+                (completing conj)
+                []
+                (q/execute-query
+                  ::key
+                  (iterator sample-set)
+                  {:btreekeys/after bytes}))
+        all (transduce
+              (take 4)
+              (completing conj)
+              []
+              (q/execute-query
+                ::key
+                (iterator sample-set)
+                {}))]
+    (is (= (count start) 2))
+    (is (= (remove-bytes (first overlap))
+           (remove-bytes (last start))))
+    (is (= (remove-bytes (first after))
+           (remove-bytes (last overlap))))
+    (is (= (map remove-bytes (concat start after))
+           (map remove-bytes all)))))
