@@ -1,4 +1,4 @@
-(defproject megakorre/btreekeys "0.1.7"
+(defproject megakorre/btreekeys "0.1.8"
   :description "A library for creating parsing and traversing btrees effectively"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
