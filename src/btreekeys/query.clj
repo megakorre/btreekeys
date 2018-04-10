@@ -16,8 +16,7 @@
 (defn >byte?
   [^bytes byte-a ^bytes byte-b]
   (let [comparator (UnsignedBytes/lexicographicalComparator)]
-    (or (nil? byte-a)
-        (> 0 (.compare comparator byte-a byte-b)))))
+    (> 0 (.compare comparator byte-a byte-b))))
 
 (defn seek-in-prefix-code
   "seeks but returns nil if the seek left the bounds
@@ -28,11 +27,11 @@
                            structure-type prefix-keys)
         prefix-size (bt/structure-size prefix-structure)
         seek-code (cond
-                    after-bind `(if (>byte? ~key-binding ~after-bind)
+                    after-bind `(if (and ~after-bind (>byte? ~key-binding ~after-bind))
                                   (do (seek ~iterator-binding ~after-bind)
                                       (next-item ~iterator-binding))
                                   (seek ~iterator-binding ~key-binding))
-                    start-bind `(if (>byte? ~key-binding ~start-bind)
+                    start-bind `(if (and ~start-bind (>byte? ~key-binding ~start-bind))
                                   (seek ~iterator-binding ~start-bind)
                                   (seek ~iterator-binding ~key-binding))
                     :else `(seek ~iterator-binding ~key-binding))]
