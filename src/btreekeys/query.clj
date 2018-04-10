@@ -13,23 +13,37 @@
   (seek [this key-prefix])
   (current-key [this]))
 
-(defmacro seek-in-prefix
+(defn >byte?
+  [^bytes byte-a ^bytes byte-b]
+  (let [comparator (UnsignedBytes/lexicographicalComparator)]
+    (> 0 (.compare comparator byte-a byte-b))))
+
+(defn seek-in-prefix-code
   "seeks but returns nil if the seek left the bounds
    of the prefix"
-  [structure-type prefix-keys iterator-binding key-binding]
+  [{:keys [structure-type iterator-binding key-binding start-bind after-bind]}
+   prefix-keys]
   (let [prefix-structure (bt/prefix-structure
                            structure-type prefix-keys)
-        prefix-size (bt/structure-size prefix-structure)]
+        prefix-size (bt/structure-size prefix-structure)
+        seek-code (cond
+                    after-bind `(if (>byte? ~key-binding ~after-bind)
+                                  (do (seek ~iterator-binding ~after-bind)
+                                      (next-item ~iterator-binding))
+                                  (seek ~iterator-binding ~key-binding))
+                    start-bind `(if (>byte? ~key-binding ~start-bind)
+                                  (seek ~iterator-binding ~start-bind)
+                                  (seek ~iterator-binding ~key-binding))
+                    :else `(seek ~iterator-binding ~key-binding))]
     (if (seq prefix-keys)
       `(let [prefix-val-before# (Arrays/copyOfRange
                                   (bytes ~key-binding) 0 ~prefix-size)]
-         (when-let [~key-binding (seek ~iterator-binding ~key-binding)]
+         (when-let [~key-binding ~seek-code]
            (when (Arrays/equals
                    prefix-val-before#
                    (Arrays/copyOfRange (bytes ~key-binding) 0 ~prefix-size))
              ~key-binding)))
-      `(when-let [~key-binding (seek ~iterator-binding ~key-binding)]
-         ~key-binding))))
+      `(when-let [~key-binding ~seek-code] ~key-binding))))
 
 (defmacro next-while-in-prefix
   [structure-type prefix-keys
@@ -156,10 +170,9 @@
                   val-produced# (volatile! false)
                   ~key-binding ~key-binding]
              (vswap! ~vals-produced-binding conj val-produced#)
-             (when-let [~key-binding (seek-in-prefix
-                                       ~structure-type
-                                       ~(into [] prefix-keys)
-                                       ~iterator-binding ~key-binding)]
+             (when-let [~key-binding ~(seek-in-prefix-code
+                                        context
+                                        (into [] prefix-keys))]
                (let [~value-binding (bt/extract-keysegment-byte
                                       ~structure-type
                                       ~keysegment-key
@@ -199,27 +212,30 @@
         key-binding (with-meta (gensym "key-binding") {:tag bytes})
         submit-key! (gensym "submit-key!")
         vals-produced-binding (gensym "vals-produced")
+        start-bind (gensym "global-start")
+        after-bind (gensym "global-after")
+        base-context {:key-binding key-binding
+                      :vals-produced-binding vals-produced-binding
+                      :structure-type structure-type
+                      :start-bind (when (:btreekeys/start query-map) start-bind)
+                      :after-bind (when (:btreekeys/after query-map) after-bind)
+                      :iterator-binding iterator-binding}
         toplevel-runner
         (reduce
           (fn [next-cont [keysegment-key mapping]]
             (query-code
               (merge
                 mapping
-                {:keysegment-key keysegment-key
-                 :key-binding key-binding
-                 :vals-produced-binding vals-produced-binding
-                 :structure-type structure-type
-                 :iterator-binding iterator-binding})
+                base-context
+                {:keysegment-key keysegment-key})
               next-cont))
           (fn [prefix-bindings]
             `(let [~key-binding (bt/make-byte-prefix
                                   ~structure-type
                                   ~@(flatten (seq prefix-bindings)))]
-               (when-let [~key-binding (seek-in-prefix
-                                         ~structure-type
-                                         ~(into [] (keys prefix-bindings))
-                                         ~iterator-binding
-                                         ~key-binding)]
+               (when-let [~key-binding ~(seek-in-prefix-code
+                                          base-context
+                                          (into [] (keys prefix-bindings)))]
                  (~submit-key! (bt/parse-key ~structure-type ~key-binding))
                  (next-while-in-prefix
                    ~structure-type
@@ -234,6 +250,8 @@
          (let [current-acc# (volatile! init#)
                ~vals-produced-binding (volatile! ())
                ~iterator-binding iterator#
+               ~start-bind ~(:btreekeys/start query-map)
+               ~after-bind ~(:btreekeys/after query-map)
                ~submit-key! (fn [key#]
                               (doseq [ref# @~vals-produced-binding]
                                 (vreset! ref# true))
@@ -242,13 +260,6 @@
                               (when (reduced? @current-acc#)
                                 (throw (ex-info "exit early" {::exit true}))))]
            (try
-             ~@(when-let [start-expr (:btreekeys/start query-map)]
-                 [`(seek ~iterator-binding ~start-expr)])
-
-             ~@(when-let [after-expr (:btreekeys/after query-map)]
-                 [`(seek ~iterator-binding ~after-expr)
-                  `(next-item ~iterator-binding)])
-
              ~(toplevel-runner {})
              @current-acc#
              (catch Exception e#

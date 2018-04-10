@@ -22,11 +22,9 @@
       (Arrays/copyOf key (alength key))))
   (current-key [_] @position)
   (seek [_ key-prefix]
-    (let [^SortedSet tail (if @position (.tailSet coll @position) coll)]
-      (when-let [^bytes key (.ceiling coll key-prefix)]
-        (let [^bytes key (if (.contains tail key) key (.first tail))]
-          (reset! position key)
-          (Arrays/copyOf key (alength key)))))))
+    (when-let [^bytes key (.ceiling coll key-prefix)]
+      (reset! position key)
+      (Arrays/copyOf key (alength key)))))
 
 (defmethod bt/key-structure ::key
   [_]
