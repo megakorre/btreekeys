@@ -16,7 +16,8 @@
 (defn >byte?
   [^bytes byte-a ^bytes byte-b]
   (let [comparator (UnsignedBytes/lexicographicalComparator)]
-    (> 0 (.compare comparator byte-a byte-b))))
+    (or (nil? byte-a)
+        (> 0 (.compare comparator byte-a byte-b)))))
 
 (defn seek-in-prefix-code
   "seeks but returns nil if the seek left the bounds
