@@ -43,6 +43,10 @@
         (bt/make-key ::key {:head 1
                             :body 1
                             :tail 1}))
+  (.add ^TreeSet sample-set
+        (bt/make-key ::key {:head 1
+                            :body 1
+                            :tail 2}))
   (.add sample-set
         (bt/make-key ::key {:head 2
                             :body 1
@@ -63,8 +67,6 @@
             (bt/make-key ::key {:head 1
                                 :body body
                                 :tail tail})))))
-
-
 
 (deftest test-queries
   (are [q v] (= v (map remove-bytes (q/execute-query ::key (iterator sample-set) q)))
@@ -139,6 +141,17 @@
      {:head 1, :body 3, :tail 2}
      {:head 1, :body 3, :tail 3}
      {:head 1, :body 3, :tail 4}]
+
+    ;; find all in every group until 2
+    {:head {:q :eq :value 1}
+     :body {:q :in :values [2 3]}
+     :tail {:q :any :until 2}}
+    [{:head 1, :body 2, :tail 0}
+     {:head 1, :body 2, :tail 1}
+     {:head 1, :body 2, :tail 2}
+     {:head 1, :body 3, :tail 0}
+     {:head 1, :body 3, :tail 1}
+     {:head 1, :body 3, :tail 2}]
 
     ;; find first start 2
     {:head {:q :eq :value 1}

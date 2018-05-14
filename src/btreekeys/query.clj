@@ -73,7 +73,7 @@
   (reverse
     (drop-while
       (fn [[k query-item]]
-        (= query-item {:q :any :limit Long/MAX_VALUE :start nil :after nil}))
+        (= query-item {:q :any :limit Long/MAX_VALUE :start nil :after nil :until nil}))
       (reverse query))))
 
 (defn normalize-query
@@ -84,7 +84,8 @@
      (merge
        {:limit Long/MAX_VALUE
         :after nil
-        :start nil}
+        :start nil
+        :until nil}
        (if (nil? value) {:q :any} value))]))
 
 (defmulti query-code :q)
@@ -143,7 +144,7 @@
 
 (defmethod query-code :any
   [{:keys [keysegment-key iterator-binding key-binding structure-type
-           limit start after vals-produced-binding]
+           limit start after vals-produced-binding until]
     :as context} cont]
   (fn [prefix-bindings]
     (let [value-binding (gensym (name keysegment-key))
@@ -184,7 +185,17 @@
                  (when (and (< new-produced-count# ~limit)
                             (bt/increment-key-segment!
                               ~structure-type ~keysegment-key
-                              ~key-binding))
+                              ~key-binding)
+                            ~@(when until
+                                `[(not (>byte?
+                                         (bt/make-keysegment
+                                           ~structure-type
+                                           ~keysegment-key
+                                           ~until)
+                                         (bt/extract-keysegment-byte
+                                           ~structure-type
+                                           ~keysegment-key
+                                           ~key-binding)))]))
                    (recur
                      new-produced-count#
                      (volatile! false)
